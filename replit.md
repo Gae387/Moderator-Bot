@@ -1,45 +1,45 @@
-# [Project name]
+# Discord Moderation Bot
 
-_Replace the heading above with the project's name, and this line with one sentence describing what this app does for users._
+A Discord moderation bot built with discord.py, using the `.` prefix.
 
 ## Run & Operate
 
-- `pnpm --filter @workspace/api-server run dev` — run the API server (port 5000)
-- `pnpm run typecheck` — full typecheck across all packages
-- `pnpm run build` — typecheck + build all packages
-- `pnpm --filter @workspace/api-spec run codegen` — regenerate API hooks and Zod schemas from the OpenAPI spec
-- `pnpm --filter @workspace/db run push` — push DB schema changes (dev only)
-- Required env: `DATABASE_URL` — Postgres connection string
+- The **Discord Bot** workflow runs the bot automatically.
+- `python3 bot/bot.py` — run the bot manually from the shell.
+- Warnings are persisted to `bot/warnings.json`.
 
 ## Stack
 
-- pnpm workspaces, Node.js 24, TypeScript 5.9
-- API: Express 5
-- DB: PostgreSQL + Drizzle ORM
-- Validation: Zod (`zod/v4`), `drizzle-zod`
-- API codegen: Orval (from OpenAPI spec)
-- Build: esbuild (CJS bundle)
+- Python 3.13, discord.py 2.x
+- Prefix: `.`
+- Required secret: `DISCORD_TOKEN`
+
+## Commands
+
+| Command | Permission | Description |
+|---|---|---|
+| `.help [command]` | Everyone | Show all commands or details for one |
+| `.ban @user [reason]` | Ban Members | Permanently ban a member |
+| `.kick @user [reason]` | Kick Members | Kick a member |
+| `.mute @user [duration] [reason]` | Moderate Members | Timeout a member (e.g. `10m`, `2h`, `1d`) |
+| `.unmute @user [reason]` | Moderate Members | Remove a timeout |
+| `.warn @user [reason]` | Kick Members | Warn a member (persisted to JSON) |
+| `.warnings @user` | Kick Members | List warnings for a member |
+| `.clearwarns @user` | Kick Members | Clear all warnings for a member |
+| `.pex @user <role name>` | Manage Roles | Give a role to a member |
+| `.depex @user <role name>` | Manage Roles | Remove a role from a member |
+| `.clear [amount] [@user]` | Manage Messages | Bulk-delete messages (default: 10) |
+| `.lock [#channel] [reason]` | Manage Channels | Lock a channel for @everyone |
+| `.unlock [#channel] [reason]` | Manage Channels | Unlock a channel |
+| `.say [#channel] <message>` | Manage Messages | Send a plain message as the bot |
+| `.embed [#channel] "Title" <desc>` | Manage Messages | Send an embed as the bot |
 
 ## Where things live
 
-_Populate as you build — short repo map plus pointers to the source-of-truth file for DB schema, API contracts, theme files, etc._
-
-## Architecture decisions
-
-_Populate as you build — non-obvious choices a reader couldn't infer from the code (3-5 bullets)._
-
-## Product
-
-_Describe the high-level user-facing capabilities of this app once they exist._
+- `bot/bot.py` — all bot logic
+- `bot/warnings.json` — persisted warning records (auto-created)
+- `bot/requirements.txt` — Python dependencies
 
 ## User preferences
 
-_Populate as you build — explicit user instructions worth remembering across sessions._
-
-## Gotchas
-
-_Populate as you build — sharp edges, "always run X before Y" rules._
-
-## Pointers
-
-- See the `pnpm-workspace` skill for workspace structure, TypeScript setup, and package details
+_Populate as you build._
