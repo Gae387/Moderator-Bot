@@ -42,6 +42,21 @@ def save_welcome(data):
 
 welcome_db = load_welcome()
 
+# Configurazione addio  {guild_id: {channel_id, message}}
+GOODBYE_FILE = "bot/goodbye.json"
+
+def load_goodbye():
+    if os.path.exists(GOODBYE_FILE):
+        with open(GOODBYE_FILE) as f:
+            return json.load(f)
+    return {}
+
+def save_goodbye(data):
+    with open(GOODBYE_FILE, "w") as f:
+        json.dump(data, f, indent=2)
+
+goodbye_db = load_goodbye()
+
 # ── Intents & Bot ─────────────────────────────────────────────────────────────
 intents = discord.Intents.default()
 intents.members         = True
@@ -88,6 +103,28 @@ async def on_member_join(member):
     await channel.send(embed=embed)
 
 @bot.event
+async def on_member_remove(member):
+    gid = str(member.guild.id)
+    cfg = goodbye_db.get(gid)
+    if not cfg:
+        return
+    channel = member.guild.get_channel(int(cfg["channel_id"]))
+    if not channel:
+        return
+    msg = cfg["message"].replace("{user}", member.mention) \
+                        .replace("{username}", member.display_name) \
+                        .replace("{server}", member.guild.name) \
+                        .replace("{count}", str(member.guild.member_count))
+    embed = discord.Embed(
+        title=f"👋 Arrivederci da {member.guild.name}!",
+        description=msg,
+        color=discord.Color.red()
+    )
+    embed.set_thumbnail(url=member.display_avatar.url)
+    embed.set_footer(text=f"Membri rimasti: {member.guild.member_count}")
+    await channel.send(embed=embed)
+
+@bot.event
 async def on_command_error(ctx, exc):
     if isinstance(exc, commands.MissingPermissions):
         await ctx.send(embed=error("Non hai i permessi necessari per usare questo comando."))
@@ -130,6 +167,7 @@ async def help_cmd(ctx, comando: str = None):
         "💬 Canale":   ["clear", "lock", "unlock"],
         "📢 Messaggi": ["say", "embed"],
         "👋 Benvenuto":["setwelcome", "welcomeoff", "testwelcome"],
+        "👋 Addio":    ["setgoodbye", "goodbyeoff", "testgoodbye"],
     }
     for gruppo, cmds in gruppi.items():
         value = "\n".join(
@@ -416,6 +454,60 @@ async def testwelcome_cmd(ctx):
     embed.set_footer(text=f"Membro #{ctx.guild.member_count} — ⚠️ Questo è un test")
     await canale.send(embed=embed)
     await ctx.send(embed=info(f"Messaggio di benvenuto di test inviato in {canale.mention}!"))
+
+# ── .setgoodbye ───────────────────────────────────────────────────────────────
+@bot.command(name="setgoodbye")
+@commands.has_permissions(manage_guild=True)
+async def setgoodbye_cmd(ctx, canale: discord.TextChannel, *, messaggio: str = "Ciao {username}, ci mancherai! 👋"):
+    """Imposta il canale e il messaggio di addio. Usa {user}, {username}, {server}, {count}.
+    Utilizzo: .setgoodbye #canale [messaggio]"""
+    gid = str(ctx.guild.id)
+    goodbye_db[gid] = {"channel_id": str(canale.id), "message": messaggio}
+    save_goodbye(goodbye_db)
+    anteprima = messaggio.replace("{user}", ctx.author.mention) \
+                         .replace("{username}", ctx.author.display_name) \
+                         .replace("{server}", ctx.guild.name) \
+                         .replace("{count}", str(ctx.guild.member_count))
+    await ctx.send(embed=success(f"Canale di addio impostato su {canale.mention}!\n\n**Anteprima:**\n{anteprima}"))
+
+# ── .goodbyeoff ───────────────────────────────────────────────────────────────
+@bot.command(name="goodbyeoff")
+@commands.has_permissions(manage_guild=True)
+async def goodbyeoff_cmd(ctx):
+    """Disabilita i messaggi di addio per questo server.
+    Utilizzo: .goodbyeoff"""
+    gid = str(ctx.guild.id)
+    if gid in goodbye_db:
+        del goodbye_db[gid]
+        save_goodbye(goodbye_db)
+    await ctx.send(embed=success("I messaggi di addio sono stati disabilitati."))
+
+# ── .testgoodbye ──────────────────────────────────────────────────────────────
+@bot.command(name="testgoodbye")
+@commands.has_permissions(manage_guild=True)
+async def testgoodbye_cmd(ctx):
+    """Invia un messaggio di addio di prova per vedere l'anteprima.
+    Utilizzo: .testgoodbye"""
+    gid = str(ctx.guild.id)
+    cfg = goodbye_db.get(gid)
+    if not cfg:
+        return await ctx.send(embed=error("Nessun messaggio di addio impostato. Usa prima `.setgoodbye #canale <messaggio>`."))
+    canale = ctx.guild.get_channel(int(cfg["channel_id"]))
+    if not canale:
+        return await ctx.send(embed=error("Il canale di addio configurato non esiste più. Esegui di nuovo `.setgoodbye`."))
+    msg = cfg["message"].replace("{user}", ctx.author.mention) \
+                        .replace("{username}", ctx.author.display_name) \
+                        .replace("{server}", ctx.guild.name) \
+                        .replace("{count}", str(ctx.guild.member_count))
+    embed = discord.Embed(
+        title=f"👋 Arrivederci da {ctx.guild.name}!",
+        description=msg,
+        color=discord.Color.red()
+    )
+    embed.set_thumbnail(url=ctx.author.display_avatar.url)
+    embed.set_footer(text=f"Membri rimasti: {ctx.guild.member_count} — ⚠️ Questo è un test")
+    await canale.send(embed=embed)
+    await ctx.send(embed=info(f"Messaggio di addio di test inviato in {canale.mention}!"))
 
 # ── Run ───────────────────────────────────────────────────────────────────────
 if not TOKEN:
