@@ -57,6 +57,21 @@ def save_goodbye(data):
 
 goodbye_db = load_goodbye()
 
+# Configurazione ticket  {guild_id: {support_role_id, category_id, counter}}
+TICKETS_FILE = "bot/tickets.json"
+
+def load_tickets():
+    if os.path.exists(TICKETS_FILE):
+        with open(TICKETS_FILE) as f:
+            return json.load(f)
+    return {}
+
+def save_tickets(data):
+    with open(TICKETS_FILE, "w") as f:
+        json.dump(data, f, indent=2)
+
+tickets_db = load_tickets()
+
 # ── Intents & Bot ─────────────────────────────────────────────────────────────
 intents = discord.Intents.default()
 intents.members         = True
@@ -168,6 +183,7 @@ async def help_cmd(ctx, comando: str = None):
         "📢 Messaggi": ["say", "embed"],
         "👋 Benvenuto":["setwelcome", "welcomeoff", "testwelcome"],
         "👋 Addio":    ["setgoodbye", "goodbyeoff", "testgoodbye"],
+        "🎫 Ticket":   ["setupticket", "ticket", "closeticket", "addticket", "removeticket"],
     }
     for gruppo, cmds in gruppi.items():
         value = "\n".join(
@@ -508,6 +524,141 @@ async def testgoodbye_cmd(ctx):
     embed.set_footer(text=f"Membri rimasti: {ctx.guild.member_count} — ⚠️ Questo è un test")
     await canale.send(embed=embed)
     await ctx.send(embed=info(f"Messaggio di addio di test inviato in {canale.mention}!"))
+
+# ── .setupticket ──────────────────────────────────────────────────────────────
+@bot.command(name="setupticket")
+@commands.has_permissions(manage_guild=True)
+@commands.bot_has_permissions(manage_channels=True)
+async def setupticket_cmd(ctx, canale: discord.TextChannel = None, ruolo: discord.Role = None):
+    """Configura il sistema ticket e invia il pannello in un canale.
+    Utilizzo: .setupticket [#canale] [@ruolo_supporto]"""
+    gid = str(ctx.guild.id)
+    canale = canale or ctx.channel
+    tickets_db.setdefault(gid, {})
+    if ruolo:
+        tickets_db[gid]["support_role_id"] = str(ruolo.id)
+    tickets_db[gid].setdefault("counter", 0)
+    save_tickets(tickets_db)
+
+    embed = discord.Embed(
+        title="🎫 Supporto",
+        description=(
+            "Hai bisogno di aiuto o vuoi contattare lo staff?\n\n"
+            f"Scrivi **`.ticket <motivo>`** per aprire un ticket privato.\n\n"
+            f"Il nostro team ti risponderà il prima possibile."
+        ),
+        color=discord.Color.blurple()
+    )
+    embed.set_footer(text=ctx.guild.name)
+    await canale.send(embed=embed)
+    ruolo_txt = f" | Ruolo supporto: {ruolo.mention}" if ruolo else ""
+    await ctx.send(embed=success(f"Sistema ticket configurato in {canale.mention}{ruolo_txt}."))
+
+# ── .ticket ───────────────────────────────────────────────────────────────────
+@bot.command(name="ticket")
+@commands.bot_has_permissions(manage_channels=True)
+async def ticket_cmd(ctx, *, motivo: str = "Nessun motivo specificato"):
+    """Apre un ticket privato con lo staff.
+    Utilizzo: .ticket [motivo]"""
+    gid = str(ctx.guild.id)
+    cfg = tickets_db.setdefault(gid, {})
+    cfg["counter"] = cfg.get("counter", 0) + 1
+    save_tickets(tickets_db)
+    numero = cfg["counter"]
+
+    # Crea il canale ticket
+    nome_canale = f"ticket-{numero:04d}-{ctx.author.name.lower().replace(' ', '-')}"
+    overwrites = {
+        ctx.guild.default_role: discord.PermissionOverwrite(read_messages=False),
+        ctx.author: discord.PermissionOverwrite(read_messages=True, send_messages=True),
+        ctx.guild.me: discord.PermissionOverwrite(read_messages=True, send_messages=True),
+    }
+    # Aggiungi il ruolo supporto se configurato
+    support_role_id = cfg.get("support_role_id")
+    support_role = ctx.guild.get_role(int(support_role_id)) if support_role_id else None
+    if support_role:
+        overwrites[support_role] = discord.PermissionOverwrite(read_messages=True, send_messages=True)
+
+    # Categoria ticket se configurata
+    category = ctx.guild.get_channel(int(cfg["category_id"])) if cfg.get("category_id") else None
+
+    try:
+        canale_ticket = await ctx.guild.create_text_channel(
+            nome_canale,
+            overwrites=overwrites,
+            category=category,
+            topic=f"Ticket di {ctx.author} | Motivo: {motivo}"
+        )
+    except discord.Forbidden:
+        return await ctx.send(embed=error("Non ho i permessi per creare canali."))
+
+    embed = discord.Embed(
+        title=f"🎫 Ticket #{numero:04d}",
+        description=(
+            f"Ciao {ctx.author.mention}! Il tuo ticket è stato aperto.\n\n"
+            f"**Motivo:** {motivo}\n\n"
+            f"Lo staff ti risponderà presto. Usa `.closeticket` per chiudere questo ticket."
+        ),
+        color=discord.Color.blurple()
+    )
+    embed.set_footer(text=f"Aperto da {ctx.author} • {discord.utils.utcnow().strftime('%d/%m/%Y %H:%M')}")
+    if support_role:
+        await canale_ticket.send(content=support_role.mention, embed=embed)
+    else:
+        await canale_ticket.send(embed=embed)
+
+    await ctx.send(embed=success(f"Ticket aperto! Vai in {canale_ticket.mention}"), delete_after=10)
+    try:
+        await ctx.message.delete()
+    except discord.Forbidden:
+        pass
+
+# ── .closeticket ──────────────────────────────────────────────────────────────
+@bot.command(name="closeticket")
+@commands.bot_has_permissions(manage_channels=True)
+async def closeticket_cmd(ctx, *, motivo: str = "Nessun motivo"):
+    """Chiude il ticket corrente eliminando il canale.
+    Utilizzo: .closeticket [motivo]"""
+    if not ctx.channel.name.startswith("ticket-"):
+        return await ctx.send(embed=error("Questo comando può essere usato solo in un canale ticket."))
+
+    embed = discord.Embed(
+        title="🔒 Ticket Chiuso",
+        description=f"Ticket chiuso da **{ctx.author}**.\n**Motivo:** {motivo}\n\nIl canale verrà eliminato tra 5 secondi.",
+        color=discord.Color.red()
+    )
+    await ctx.send(embed=embed)
+    await asyncio.sleep(5)
+    try:
+        await ctx.channel.delete(reason=f"Ticket chiuso da {ctx.author}: {motivo}")
+    except discord.Forbidden:
+        await ctx.send(embed=error("Non ho i permessi per eliminare questo canale."))
+
+# ── .addticket ────────────────────────────────────────────────────────────────
+@bot.command(name="addticket")
+@commands.has_permissions(manage_channels=True)
+@commands.bot_has_permissions(manage_channels=True)
+async def addticket_cmd(ctx, membro: discord.Member):
+    """Aggiunge un membro al ticket corrente.
+    Utilizzo: .addticket @utente"""
+    if not ctx.channel.name.startswith("ticket-"):
+        return await ctx.send(embed=error("Questo comando può essere usato solo in un canale ticket."))
+    await ctx.channel.set_permissions(membro, read_messages=True, send_messages=True)
+    await ctx.send(embed=success(f"**{membro}** è stato aggiunto al ticket."))
+
+# ── .removeticket ─────────────────────────────────────────────────────────────
+@bot.command(name="removeticket")
+@commands.has_permissions(manage_channels=True)
+@commands.bot_has_permissions(manage_channels=True)
+async def removeticket_cmd(ctx, membro: discord.Member):
+    """Rimuove un membro dal ticket corrente.
+    Utilizzo: .removeticket @utente"""
+    if not ctx.channel.name.startswith("ticket-"):
+        return await ctx.send(embed=error("Questo comando può essere usato solo in un canale ticket."))
+    if membro == ctx.author:
+        return await ctx.send(embed=error("Non puoi rimuovere te stesso dal ticket."))
+    await ctx.channel.set_permissions(membro, overwrite=None)
+    await ctx.send(embed=success(f"**{membro}** è stato rimosso dal ticket."))
 
 # ── Run ───────────────────────────────────────────────────────────────────────
 if not TOKEN:
