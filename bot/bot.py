@@ -72,6 +72,116 @@ def save_tickets(data):
 
 tickets_db = load_tickets()
 
+# ── Ticket UI (pulsante + modal) ───────────────────────────────────────────────
+async def _crea_ticket(guild: discord.Guild, autore: discord.Member, motivo: str):
+    """Logica comune per creare un canale ticket."""
+    gid = str(guild.id)
+    cfg = tickets_db.setdefault(gid, {})
+    cfg["counter"] = cfg.get("counter", 0) + 1
+    save_tickets(tickets_db)
+    numero = cfg["counter"]
+
+    nome_canale = f"ticket-{numero:04d}-{autore.name.lower().replace(' ', '-')}"
+    overwrites = {
+        guild.default_role: discord.PermissionOverwrite(read_messages=False),
+        autore:             discord.PermissionOverwrite(read_messages=True, send_messages=True),
+        guild.me:           discord.PermissionOverwrite(read_messages=True, send_messages=True),
+    }
+    support_role_id = cfg.get("support_role_id")
+    support_role = guild.get_role(int(support_role_id)) if support_role_id else None
+    if support_role:
+        overwrites[support_role] = discord.PermissionOverwrite(read_messages=True, send_messages=True)
+
+    category = guild.get_channel(int(cfg["category_id"])) if cfg.get("category_id") else None
+
+    canale_ticket = await guild.create_text_channel(
+        nome_canale,
+        overwrites=overwrites,
+        category=category,
+        topic=f"Ticket di {autore} | Motivo: {motivo}"
+    )
+
+    embed = discord.Embed(
+        title=f"🎫 Ticket #{numero:04d}",
+        description=(
+            f"Ciao {autore.mention}! Il tuo ticket è stato aperto.\n\n"
+            f"**Motivo:** {motivo}\n\n"
+            "Lo staff ti risponderà presto.\n"
+            "Usa `.closeticket` per chiudere questo ticket."
+        ),
+        color=discord.Color.blurple()
+    )
+    embed.set_footer(text=f"Aperto da {autore} • {discord.utils.utcnow().strftime('%d/%m/%Y %H:%M')}")
+    content = support_role.mention if support_role else None
+    await canale_ticket.send(content=content, embed=embed)
+    return canale_ticket
+
+
+TICKET_CATEGORIE = {
+    "supporto":  ("🛠️ Supporto generale",  "Hai bisogno di aiuto con qualcosa."),
+    "report":    ("🚨 Report utente",        "Vuoi segnalare un utente."),
+    "appello":   ("⚖️ Appello ban/mute",     "Vuoi fare appello a una sanzione."),
+    "domanda":   ("❓ Domanda",              "Hai una domanda per lo staff."),
+    "altro":     ("📋 Altro",                "Qualsiasi altra cosa."),
+}
+
+class TicketModal(discord.ui.Modal):
+    descrizione = discord.ui.TextInput(
+        label="Descrizione",
+        placeholder="Descrivi brevemente il tuo problema...",
+        style=discord.TextStyle.paragraph,
+        max_length=500,
+        required=True,
+    )
+
+    def __init__(self, categoria: str):
+        label, _ = TICKET_CATEGORIE.get(categoria, ("Ticket", ""))
+        super().__init__(title=f"Apri Ticket — {label}")
+        self.categoria = categoria
+
+    async def on_submit(self, interaction: discord.Interaction):
+        await interaction.response.defer(ephemeral=True)
+        label, _ = TICKET_CATEGORIE.get(self.categoria, ("Ticket", ""))
+        motivo = f"[{label}] {self.descrizione.value}"
+        try:
+            canale = await _crea_ticket(interaction.guild, interaction.user, motivo)
+            await interaction.followup.send(
+                embed=discord.Embed(
+                    title="✅ Ticket aperto!",
+                    description=f"Il tuo ticket è stato creato in {canale.mention}.",
+                    color=discord.Color.green()
+                ),
+                ephemeral=True
+            )
+        except discord.Forbidden:
+            await interaction.followup.send(
+                embed=discord.Embed(
+                    title="❌ Errore",
+                    description="Non ho i permessi per creare canali.",
+                    color=discord.Color.red()
+                ),
+                ephemeral=True
+            )
+
+
+class TicketButton(discord.ui.View):
+    def __init__(self):
+        super().__init__(timeout=None)  # persistente
+
+    @discord.ui.select(
+        cls=discord.ui.Select,
+        placeholder="📩 Seleziona il tipo di ticket...",
+        custom_id="ticket_select_menu",
+        options=[
+            discord.SelectOption(label=label, value=key, description=desc, emoji=label.split()[0])
+            for key, (label, desc) in TICKET_CATEGORIE.items()
+        ]
+    )
+    async def select_ticket(self, interaction: discord.Interaction, select: discord.ui.Select):
+        categoria = select.values[0]
+        await interaction.response.send_modal(TicketModal(categoria))
+
+
 # ── Intents & Bot ─────────────────────────────────────────────────────────────
 intents = discord.Intents.default()
 intents.members         = True
@@ -91,6 +201,7 @@ def warn_embed(msg): return mod_embed("⚠️ Avvertimento", msg, discord.Color.
 # ── Events ────────────────────────────────────────────────────────────────────
 @bot.event
 async def on_ready():
+    bot.add_view(TicketButton())  # registra il pulsante persistente
     print(f"✅ Connesso come {bot.user} (ID: {bot.user.id})")
     await bot.change_presence(activity=discord.Activity(
         type=discord.ActivityType.watching, name=f"{PREFIX}help"))
@@ -544,13 +655,13 @@ async def setupticket_cmd(ctx, canale: discord.TextChannel = None, ruolo: discor
         title="🎫 Supporto",
         description=(
             "Hai bisogno di aiuto o vuoi contattare lo staff?\n\n"
-            f"Scrivi **`.ticket <motivo>`** per aprire un ticket privato.\n\n"
-            f"Il nostro team ti risponderà il prima possibile."
+            "Clicca il pulsante qui sotto per aprire un ticket privato.\n\n"
+            "Il nostro team ti risponderà il prima possibile."
         ),
         color=discord.Color.blurple()
     )
     embed.set_footer(text=ctx.guild.name)
-    await canale.send(embed=embed)
+    await canale.send(embed=embed, view=TicketButton())
     ruolo_txt = f" | Ruolo supporto: {ruolo.mention}" if ruolo else ""
     await ctx.send(embed=success(f"Sistema ticket configurato in {canale.mention}{ruolo_txt}."))
 
@@ -560,53 +671,10 @@ async def setupticket_cmd(ctx, canale: discord.TextChannel = None, ruolo: discor
 async def ticket_cmd(ctx, *, motivo: str = "Nessun motivo specificato"):
     """Apre un ticket privato con lo staff.
     Utilizzo: .ticket [motivo]"""
-    gid = str(ctx.guild.id)
-    cfg = tickets_db.setdefault(gid, {})
-    cfg["counter"] = cfg.get("counter", 0) + 1
-    save_tickets(tickets_db)
-    numero = cfg["counter"]
-
-    # Crea il canale ticket
-    nome_canale = f"ticket-{numero:04d}-{ctx.author.name.lower().replace(' ', '-')}"
-    overwrites = {
-        ctx.guild.default_role: discord.PermissionOverwrite(read_messages=False),
-        ctx.author: discord.PermissionOverwrite(read_messages=True, send_messages=True),
-        ctx.guild.me: discord.PermissionOverwrite(read_messages=True, send_messages=True),
-    }
-    # Aggiungi il ruolo supporto se configurato
-    support_role_id = cfg.get("support_role_id")
-    support_role = ctx.guild.get_role(int(support_role_id)) if support_role_id else None
-    if support_role:
-        overwrites[support_role] = discord.PermissionOverwrite(read_messages=True, send_messages=True)
-
-    # Categoria ticket se configurata
-    category = ctx.guild.get_channel(int(cfg["category_id"])) if cfg.get("category_id") else None
-
     try:
-        canale_ticket = await ctx.guild.create_text_channel(
-            nome_canale,
-            overwrites=overwrites,
-            category=category,
-            topic=f"Ticket di {ctx.author} | Motivo: {motivo}"
-        )
+        canale_ticket = await _crea_ticket(ctx.guild, ctx.author, motivo)
     except discord.Forbidden:
         return await ctx.send(embed=error("Non ho i permessi per creare canali."))
-
-    embed = discord.Embed(
-        title=f"🎫 Ticket #{numero:04d}",
-        description=(
-            f"Ciao {ctx.author.mention}! Il tuo ticket è stato aperto.\n\n"
-            f"**Motivo:** {motivo}\n\n"
-            f"Lo staff ti risponderà presto. Usa `.closeticket` per chiudere questo ticket."
-        ),
-        color=discord.Color.blurple()
-    )
-    embed.set_footer(text=f"Aperto da {ctx.author} • {discord.utils.utcnow().strftime('%d/%m/%Y %H:%M')}")
-    if support_role:
-        await canale_ticket.send(content=support_role.mention, embed=embed)
-    else:
-        await canale_ticket.send(embed=embed)
-
     await ctx.send(embed=success(f"Ticket aperto! Vai in {canale_ticket.mention}"), delete_after=10)
     try:
         await ctx.message.delete()
