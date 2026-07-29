@@ -658,7 +658,7 @@ async def setupticket_cmd(ctx, canale: discord.TextChannel = None, ruolo: discor
             "Clicca il pulsante qui sotto per aprire un ticket privato.\n\n"
             "Il nostro team ti risponderà il prima possibile."
         ),
-        color=discord.Color.blurple()
+        color=discord.Color.red()
     )
     embed.set_footer(text=ctx.guild.name)
     await canale.send(embed=embed, view=TicketButton())
