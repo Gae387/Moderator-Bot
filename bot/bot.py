@@ -107,13 +107,13 @@ async def _crea_ticket(guild: discord.Guild, autore: discord.Member, motivo: str
             f"Ciao {autore.mention}! Il tuo ticket è stato aperto.\n\n"
             f"**Motivo:** {motivo}\n\n"
             "Lo staff ti risponderà presto.\n"
-            "Usa `.closeticket` per chiudere questo ticket."
+            "Premi il pulsante qui sotto per chiudere il ticket."
         ),
-        color=discord.Color.blurple()
+        color=discord.Color.red()
     )
     embed.set_footer(text=f"Aperto da {autore} • {discord.utils.utcnow().strftime('%d/%m/%Y %H:%M')}")
     content = support_role.mention if support_role else None
-    await canale_ticket.send(content=content, embed=embed)
+    await canale_ticket.send(content=content, embed=embed, view=CloseTicketView())
     return canale_ticket
 
 
@@ -182,6 +182,34 @@ class TicketButton(discord.ui.View):
         await interaction.response.send_modal(TicketModal(categoria))
 
 
+class CloseTicketView(discord.ui.View):
+    def __init__(self):
+        super().__init__(timeout=None)
+
+    @discord.ui.button(
+        label="🔒 Chiudi Ticket",
+        style=discord.ButtonStyle.danger,
+        custom_id="ticket_close_btn"
+    )
+    async def close_ticket(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if not interaction.channel.name.startswith("ticket-"):
+            return await interaction.response.send_message(
+                embed=discord.Embed(title="❌ Errore", description="Non sei in un canale ticket.", color=discord.Color.red()),
+                ephemeral=True
+            )
+        embed = discord.Embed(
+            title="🔒 Ticket Chiuso",
+            description=f"Ticket chiuso da **{interaction.user}**.\n\nIl canale verrà eliminato tra 5 secondi.",
+            color=discord.Color.red()
+        )
+        await interaction.response.send_message(embed=embed)
+        await asyncio.sleep(5)
+        try:
+            await interaction.channel.delete(reason=f"Ticket chiuso da {interaction.user}")
+        except discord.Forbidden:
+            pass
+
+
 # ── Intents & Bot ─────────────────────────────────────────────────────────────
 intents = discord.Intents.default()
 intents.members         = True
@@ -201,7 +229,8 @@ def warn_embed(msg): return mod_embed("⚠️ Avvertimento", msg, discord.Color.
 # ── Events ────────────────────────────────────────────────────────────────────
 @bot.event
 async def on_ready():
-    bot.add_view(TicketButton())  # registra il pulsante persistente
+    bot.add_view(TicketButton())       # registra il menù ticket persistente
+    bot.add_view(CloseTicketView())    # registra il pulsante chiudi persistente
     print(f"✅ Connesso come {bot.user} (ID: {bot.user.id})")
     await bot.change_presence(activity=discord.Activity(
         type=discord.ActivityType.watching, name=f"{PREFIX}help"))
