@@ -118,11 +118,11 @@ async def _crea_ticket(guild: discord.Guild, autore: discord.Member, motivo: str
 
 
 TICKET_CATEGORIE = {
-    "supporto":  ("🛠️ Supporto generale",  "Hai bisogno di aiuto con qualcosa."),
-    "report":    ("🚨 Report utente",        "Vuoi segnalare un utente."),
-    "appello":   ("⚖️ Appello ban/mute",     "Vuoi fare appello a una sanzione."),
-    "domanda":   ("❓ Domanda",              "Hai una domanda per lo staff."),
-    "altro":     ("📋 Altro",                "Qualsiasi altra cosa."),
+    "premio":    ("🎁 Ritira un premio",              "Vuoi ritirare un premio che hai vinto."),
+    "staff":     ("🙋 Candidatura staff",             "Vuoi candidarti per entrare nello staff."),
+    "collab":    ("🫂 Collab/Partnership",             "Vuoi proporre una collaborazione o partnership."),
+    "report":    ("❌ Segnala un utente",              "Vuoi segnalare un utente che viola le regole."),
+    "trusted":   ("✔️ Richiedi Trusted/Super trusted", "Vuoi richiedere il ruolo Trusted o Super trusted."),
 }
 
 class TicketModal(discord.ui.Modal):
